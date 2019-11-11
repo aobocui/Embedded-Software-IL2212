@@ -1,0 +1,275 @@
+
+#include "altera_avalon_performance_counter.h"
+#include "system.h"
+#include <stdio.h>
+#include "altera_avalon_pio_regs.h"
+#include "sys/alt_alarm.h"
+#include "alt_types.h"
+#include "images.h"
+#include "ascii_gray.h"
+
+#define DEBUG 1
+#define PERFORMANCE 0
+
+#define SECTION_1 1
+#define SECTION_2 2
+#define SECTION_3 3
+#define SECTION_4 4
+#define SECTION_5 5
+#define SECTION_6 6
+#define SECTION_7 7
+
+#define dSPAN 15
+#define cropSIZE 31
+#define matrixASIZE 5
+
+#define x0 192
+#define x1 64
+#define y1 64
+#define x2 31
+#define y2 31
+#define x3 27
+#define y3 27
+
+int counter = 0;
+
+int dimX, dimY;
+int prev[2];
+int crop[2];
+int detect[2];
+
+int offset[2] = { 0, 0 };
+double grayed[4096];
+double croped[y2][x2];
+double xcorred[y3][x3];
+double xPATTERN[5][5] = { { 0, 0, 1, 0, 0 }, { 0, 1, 0, 1, 0 },
+		{ 1, 0, 0, 0, 1 }, { 0, 1, 0, 1, 0 }, { 0, 0, 1, 0, 0 } };
+
+double max11 = 0;
+
+//change the image into grayscale
+double grayscale(unsigned char img[y1 * x0 + 3]) {
+	int remainer, i;
+	//int k=0;
+	//double grayvalue;
+
+	remainer = x0 % 3;
+	if (remainer == 0) {
+		for (i = 0; i < 4096; i = i + 1) {
+
+			grayed[i] = (*(img + 3 * i + 3) >> 4) + (*(img + 3 * i + 3) >> 2)
+					+ (*(img + 3 * i + 4) >> 1) + (*(img + 3 * i + 4) >> 4)
+					+ (*(img + 3 * i + 5) >> 3);
+
+		}
+
+	}
+
+	else
+		printf("RGB image length is not a multiple of 3\n");
+	return grayed[4096];
+}
+
+//find the start point for crop
+
+int calcCoord(int prev[2], double grayed[y1 * x1]) {
+// int i=0,j=0;
+	int imgW = x1, imgH = y1;
+
+	if (prev[0] <= dSPAN) {
+		crop[0] = 0;
+	} else {
+		if (prev[0] > (imgW - dSPAN)) {
+			crop[0] = imgW - cropSIZE - 1;
+		} else {
+			crop[0] = prev[0] - dSPAN - 1;
+		}
+	}
+
+	if (prev[1] <= dSPAN) {
+		crop[1] = 0;
+	} else {
+		if (prev[1] > (imgH - dSPAN)) {
+			crop[1] = imgH - cropSIZE - 1;
+		} else {
+			crop[1] = prev[1] - dSPAN - 1;
+		}
+	}
+	return crop[2];
+}
+
+// cut the grayscale image take the point got from calcCoord as the start point with the size
+
+double cropp(double grayed[y1 * x1], int crop[2]) {
+	int i = 0, j = 0;
+	int coord[2];
+	coord[0] = crop[0], coord[1] = crop[1];
+// double croped[y2][x2];
+	for (i = crop[1]; i < (crop[1] + y2); i++) {
+		for (j = crop[0]; j < (crop[0] + x2); j++) {
+			croped[i - crop[1]][j - crop[0]] = grayed[i * y1 + j];
+		}
+	}
+	return croped[y2][x2];
+}
+
+//do some excution to process the matrix
+
+double xcorr(double croped[y2][x2], double xPATTERN[5][5]) {
+	int i = 0, j = 0, k = 0, l = 0;
+	double xvalue = 0, xtmp = 0;
+// double xcorred[y3][x3];
+	for (i = 0; i < y3; i++) {
+		for (j = 0; j < x3; j++) {
+			xvalue = 0;
+			for (k = 0; k < 5; k++) {
+				for (l = 0; l < 5; l++) {
+					xtmp = xPATTERN[k][l] * croped[i + k][j + l];
+					xvalue = xvalue + xtmp;
+				}
+			}
+			xcorred[i][j] = xvalue;
+			//printf("%f\n",xvalue);
+			//printf("%f\n",xcorred[i][j]);
+		}
+	}
+	return xcorred[y3][x3];
+}
+
+int getoffset(double xcorred[y3][x3]) {
+	int i = 0, j = 0;
+	double max = 0;
+
+	for (i = 0; i < y3; i++) {
+		for (j = 0; j < x3; j++) {
+			if (xcorred[i][j] > max) {
+				max = xcorred[i][j];
+				offset[0] = j;
+				offset[1] = i;
+				max11 = max;
+			}
+		}
+	}
+	//printf("%f\n", max);
+	//printf("%d %d\n",offset[0],offset[1]);
+	return offset[2];
+}
+
+int calcPos(int offset[2], int crop[2]) {
+
+	detect[0] = crop[0] + offset[0] + 2;
+	detect[1] = crop[1] + offset[1] + 2;
+
+	return detect[2];
+}
+
+int main(void) {
+	/*
+	 * PERFORMANCE MODE
+	 */
+	if (PERFORMANCE) {
+		int currentIMG = 0;
+		printf("PERFORMANCE MODE!! \n\n\n");
+		PERF_RESET(PERFORMANCE_COUNTER_0_BASE);
+		PERF_START_MEASURING(PERFORMANCE_COUNTER_0_BASE);
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+		while (counter++ < 4) {
+
+			if (currentIMG == 0) {
+				prev[0] = dSPAN;
+				prev[1] = dSPAN;
+			}
+
+			grayed[y1 * x1] = grayscale(image_sequence[currentIMG]);
+			crop[2] = calcCoord(prev, grayed);
+			croped[y2][x2] = cropp(grayed, crop);
+			xcorred[y3][x3] = xcorr(croped, xPATTERN);
+			offset[2] = getoffset(xcorred);
+			detect[2] = calcPos(offset, crop);
+			printf("%d %d\n", detect[0], detect[1]);
+			prev[0] = detect[0];
+			prev[1] = detect[1];
+			currentIMG++;
+			//currentIMG%=sequence_length;
+			prev[0] = detect[0];
+			prev[1] = detect[1];
+			if (currentIMG > 3)
+
+			{
+				currentIMG = 0;
+				prev[0] = dSPAN;
+				prev[1] = dSPAN;
+			}
+		}
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+		perf_print_formatted_report(PERFORMANCE_COUNTER_0_BASE, ALT_CPU_FREQ, // defined in "system.h"
+				1, // How many sections to print
+				"Total time" // Display-name of section(s).
+				);
+	} else {
+		/*
+		 * 	DEBUG MODE
+		 */
+		int currentIMG = 0;
+
+		printf("DEBUG MODE!! \n\n\n");
+		prev[0] = dSPAN; //As stated in the model, the initial values
+		prev[1] = dSPAN; //Of the finalresult are dSPAN
+		while (currentIMG < 4) {
+
+			PERF_RESET(PERFORMANCE_COUNTER_0_BASE);
+			PERF_START_MEASURING(PERFORMANCE_COUNTER_0_BASE);
+
+			PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+			grayed[y1 * x1] = grayscale(image_sequence[currentIMG]);
+			PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+
+			printf("\n INPUT \n");
+			printAscii(grayed, 64, 64);
+
+			PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_2);
+			crop[2] = calcCoord(prev, grayed);
+			PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_2);
+
+			PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_3);
+			croped[y2][x2] = cropp(grayed, crop);
+			PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+
+			PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_4);
+			xcorred[y3][x3] = xcorr(croped, xPATTERN);
+			PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_4);
+
+			PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_5);
+			offset[2] = getoffset(xcorred);
+			PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_5);
+
+			printf("\nOUTPUT\n");
+			printAsciiHidden(xcorred, 27, 27, offset[0], offset[1], 4, max11);
+
+			/* Print report */
+			perf_print_formatted_report(PERFORMANCE_COUNTER_0_BASE,
+					ALT_CPU_FREQ, // defined in "system.h"
+					5, // How many sections to print
+					"Grayscale", "CalcCoord", "crop", "xCorr2", "getoffset" // Display-name of section(s).
+					);
+
+			detect[2] = calcPos(offset, crop);
+			printf("%d %d\n", detect[0], detect[1]);
+
+			currentIMG++;
+			prev[0] = detect[0];
+			prev[1] = detect[1];
+			if (currentIMG > 3)
+
+			{
+				currentIMG = 0;
+				prev[0] = dSPAN;
+				prev[1] = dSPAN;
+			}
+		}
+	}
+
+	return 0;
+}
+
+

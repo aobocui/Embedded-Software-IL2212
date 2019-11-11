@@ -1,0 +1,241 @@
+#include <stdio.h>
+#include "system.h"
+//#include "io.h"
+#include "sys/alt_stdio.h"
+#include <altera_avalon_mutex.h>
+
+extern void delay (int millisec);
+
+int main()
+{ 
+	
+	int* cpu_rw = (int*) SHARED_ONCHIP_BASE;
+	int *crop_throw;
+	crop_throw=cpu_rw+1008;
+	unsigned char original[930];
+	unsigned char grayed[186];
+	int i;
+	int found=0;
+	int result[2]={0,0};
+	int p1,p2,p3,p4,p5,p6,p7;
+	int grayed_p1,grayed_p2,grayed_p3,grayed_p4,grayed_p5,grayed_p6,grayed_p7;
+	int p=0;
+	
+	alt_mutex_dev* mutex_4 = altera_avalon_mutex_open( "/dev/mutex_4" );
+  	
+  	altera_avalon_mutex_lock(mutex_4, 1);
+	delay(1);
+	altera_avalon_mutex_unlock(mutex_4);
+	delay(10);
+  	
+
+  	while (1) {
+		//	alt_putstr("Hello cpu_4!\n");
+		
+			altera_avalon_mutex_lock(mutex_4, 1);
+		//	 alt_putstr("cpu_4 reading image\n");
+			
+/*------------------------------------ read image from shared memory here-------------------------------------*/
+			unsigned char* shared = (unsigned char*) SHARED_ONCHIP_BASE;
+			shared+=*crop_throw;
+			shared+=2016;
+			int c=0;
+     		    
+		//	printf("%d \n", *shared); 
+			for(i=21;i<31;i++)
+			{	
+
+					original[c] = *(shared);
+					original[c+1] = *(shared+1);
+					original[c+2] = *(shared+2);
+					original[c+3] = *(shared+3);
+					original[c+4] = *(shared+4);
+					original[c+5] = *(shared+5);
+					original[c+6] = *(shared+6);
+					original[c+7] = *(shared+7);
+					original[c+8] = *(shared+8);
+					original[c+9] = *(shared+9);
+					original[c+10] = *(shared+10);
+					original[c+11] = *(shared+11);
+					original[c+12] = *(shared+12);
+					original[c+13] = *(shared+13);
+					original[c+14] = *(shared+14);
+					original[c+15] = *(shared+15);
+					original[c+16] = *(shared+16);
+					original[c+17] = *(shared+17);
+					original[c+18] = *(shared+18);
+					original[c+19] = *(shared+19);
+					original[c+20] = *(shared+20);
+					original[c+21] = *(shared+21);
+					original[c+22] = *(shared+22);
+					original[c+23] = *(shared+23);
+					original[c+24] = *(shared+24);
+					original[c+25] = *(shared+25);
+					original[c+26] = *(shared+26);
+					original[c+27] = *(shared+27);
+					original[c+28] = *(shared+28);
+					original[c+29] = *(shared+29);
+					original[c+30] = *(shared+30);
+					original[c+31] = *(shared+31);
+					original[c+32] = *(shared+32);
+					original[c+33] = *(shared+33);
+					original[c+34] = *(shared+34);
+					original[c+35] = *(shared+35);
+					original[c+36] = *(shared+36);
+					original[c+37] = *(shared+37);
+					original[c+38] = *(shared+38);
+					original[c+39] = *(shared+39);
+					original[c+40] = *(shared+40);
+					original[c+41] = *(shared+41);
+					original[c+42] = *(shared+42);
+					original[c+43] = *(shared+43);
+					original[c+44] = *(shared+44);
+					original[c+45] = *(shared+45);
+					original[c+46] = *(shared+46);
+					original[c+47] = *(shared+47);
+					original[c+48] = *(shared+48);
+					original[c+49] = *(shared+49);
+					original[c+50] = *(shared+50);
+					original[c+51] = *(shared+51);
+					original[c+52] = *(shared+52);
+					original[c+53] = *(shared+53);
+					original[c+54] = *(shared+54);
+					original[c+55] = *(shared+55);
+					original[c+56] = *(shared+56);
+					original[c+57] = *(shared+57);
+					original[c+58] = *(shared+58);
+					original[c+59] = *(shared+59);
+					original[c+60] = *(shared+60);
+					original[c+61] = *(shared+61);
+					original[c+62] = *(shared+62);
+					original[c+63] = *(shared+63);
+					original[c+64] = *(shared+64);
+					original[c+65] = *(shared+65);
+					original[c+66] = *(shared+66);
+					original[c+67] = *(shared+67);
+					original[c+68] = *(shared+68);
+					original[c+69] = *(shared+69);
+					original[c+70] = *(shared+70);
+					original[c+71] = *(shared+71);
+					original[c+72] = *(shared+72);
+					original[c+73] = *(shared+73);
+					original[c+74] = *(shared+74);
+					original[c+75] = *(shared+75);
+					original[c+76] = *(shared+76);
+					original[c+77] = *(shared+77);
+					original[c+78] = *(shared+78);
+					original[c+79] = *(shared+79);
+					original[c+80] = *(shared+80);
+					original[c+81] = *(shared+81);
+					original[c+82] = *(shared+82);
+					original[c+83] = *(shared+83);
+					original[c+84] = *(shared+84);
+					original[c+85] = *(shared+85);
+					original[c+86] = *(shared+86);
+					original[c+87] = *(shared+87);
+					original[c+88] = *(shared+88);
+					original[c+89] = *(shared+89);
+					original[c+90] = *(shared+90);
+					original[c+91] = *(shared+91);
+					original[c+92] = *(shared+92);
+				//	printf("%d \n",original[c]);
+					c+=93;
+
+				shared=shared+96;
+			}
+		//	alt_putstr("cpu_4 finish reading image\n");
+
+			altera_avalon_mutex_unlock(mutex_4);
+			//delay(1);
+/*-------------------------------------------grayscale and find circle----------------------------------------------------------*/
+
+		for(i=0;i<186;i++)
+		{	
+			p=3*i;
+			grayed[i]=	(original[p] >> 4) + (original[p] >> 2)
+					+ (original[p+1] >> 1) + (original[p+1] >> 4)
+					+ (original[p+2] >> 3);
+
+				//	printf("%d \n",grayed[i]);
+
+		   			if(grayed[i]==251)
+		    			{
+				//		printf("%d \n",i);
+				//		printf("Find_top_point\n");
+	
+						p1=p+90;		/*    3*30   */
+						p2=p+96;		/*    3*32   */
+						p3=p+180;		/*    3*60   */
+						p4=p+192;		/*    3*64   */
+						p5=p+276;		/*    3*92   */
+						p6=p+282;		/*    3*94   */
+						p7=p+372;		/*    3*124  */
+
+						
+						grayed_p1=     (original[p1] >> 4) + (original[p1] >> 2)
+								+ (original[p1+1] >> 1) + (original[p1+1] >> 4)
+								+ (original[p1+2] >> 3); 
+
+						grayed_p2=     (original[p2] >> 4) + (original[p2] >> 2)
+								+ (original[p2+1] >> 1) + (original[p2+1] >> 4)
+								+ (original[p2+2] >> 3); 
+
+						grayed_p3=     (original[p3] >> 4) + (original[p3] >> 2)
+								+ (original[p3+1] >> 1) + (original[p3+1] >> 4)
+								+ (original[p3+2] >> 3); 
+
+						grayed_p4=     (original[p4] >> 4) + (original[p4] >> 2)
+								+ (original[p4+1] >> 1) + (original[p4+1] >> 4)
+								+ (original[p4+2] >> 3); 
+
+						grayed_p5=     (original[p5] >> 4) + (original[p5] >> 2)
+								+ (original[p5+1] >> 1) + (original[p5+1] >> 4)
+								+ (original[p5+2] >> 3); 
+
+						grayed_p6=     (original[p6] >> 4) + (original[p6] >> 2)
+								+ (original[p6+1] >> 1) + (original[p6+1] >> 4)
+								+ (original[p6+2] >> 3); 
+
+						grayed_p7=     (original[p7] >> 4) + (original[p7] >> 2)
+								+ (original[p7+1] >> 1) + (original[p7+1] >> 4)
+								+ (original[p7+2] >> 3); 
+
+						if ((grayed_p1==251)&&(grayed_p2==251)&&(grayed_p3==251)&&(grayed_p4==251)&&(grayed_p5==251)&&(grayed_p6==251)&&(grayed_p7==251))
+						{
+							found=1;
+						//	printf("Find_circle\n");
+							i+=651;
+							result[1]=i/31+2;
+							result[0]=i%31; 
+							 
+													
+						}					
+											
+					}
+					
+					
+					if (found==1)				
+					{break;}
+					
+					
+    			}			
+
+			//alt_putstr("cpu_4 writing result\n");
+
+			int* off=cpu_rw+1106;
+			altera_avalon_mutex_lock(mutex_4, 1);
+			*off=result[0];
+			*(off+1)=result[1];
+
+		//	printf("%d %d\n",result[0],result[1]);	
+			result[0]=0;
+			result[1]=0;
+
+			found=0;
+			altera_avalon_mutex_unlock(mutex_4);
+	
+
+	
+	}
+  	return 0;
+}

@@ -1,0 +1,289 @@
+Project Report for IL2212 Embedded Software
+
+Tianhao Zhao	                   Aobo Cui
+Embedded Systems	Embedded Systems
+Email: tianhaoz@kth.se	Email: aobo@kth.se
+
+Abstract
+This report contains the application of center detection on images with three different kinds of implementations: Bare metal, RTOS and Multiprocessor. These implementations base on architecture and synchronous data flow. We collect memory footprints and throughputs of three implementations. Then we compare and discuss the results. The images should be able to be processed at least 350 images/sec and the total code footprint (without the images) should not pass 40Kbytes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CONTENTS
+Abstract	1
+1. Introduction	3
+2.	Functions and Parallelism	3
+2.1 Parallelism	3
+2.1.1 Map Pattern	3
+2.1.2 Reduce Pattern	3
+2.1.3 Stencil	3
+2.2 Application Functions	4
+2.2.1 graySDF	4
+2.2.2 calcCoordSDF	4
+2.2.3 cropSDF	4
+2.2.4 xcorr2SDF	5
+2.2.5 getoffsetSDF	5
+2.2.6 calcPosSDF	5
+2.2.7 delaySDF	5
+3. Architecture of the multiprocessor	7
+4 Architectural features and limitation	8
+5 Single processor without RTOS(bare-metal implementation)	9
+6 Single processor using the SRAM memory, on the MicroC/OS-II RTOS	10
+7 The application on the multi-core architecture, without RTOS	11
+8 Code Optimization	13
+8.1 Bit shift operator	13
+8.2 Pointers	13
+8.3 Rearrange the functions	14
+8.4 Int pointer instead of unsigned char	14
+8.5 Function call	14
+8.6 Loop unrolling	14
+9 Conclusion and Discussion	15
+9.1 Bare-metal	15
+9.2 RTOS	15
+9.3 Multi-processor	15
+10 Division of labor	16
+References	16
+
+
+1. Introduction
+The project is aimed to get familiar with data flow applications and multiprocessor architectures, enabling application to be implemented on multiple processors. This lab is to implement an image tracking algorithm which tracks a given moving "circle" pattern in a series of image frames for the purpose of further processing.
+
+2.	Functions and Parallelism
+This application is used to find a white circle in given pictures. It first read the original picture in matrix format and transfer it into grayed picture in matrix format. Then crop it into small picture and deal with it to get a new matrix. Then find the coordination of the point with the maximum value and transfer it into correct coordination. At last, use delay function to give the offset the first image ({0,0}) and other computations are made to provide offset for the next image one by one.
+2.1 Parallelism
+Three parallel patterns are used in this application: map, reduce and stencil.
+2.1.1 Map Pattern
+Map is to do the same operation onto different data. If enough processors are given, all instances can execute at the same time.
+
+Map pattern is used in grayscale and xcorr2 function.
+2.1.2 Reduce Pattern
+Reduce pattern is one kind of collective pattern. Its every single output comes from more than one input and the amount of outputs is smaller than inputs.
+
+The reduce pattern is used in xcorr2 function and getoffset function. 
+2.1.3 Stencil
+Stencil is one kind of map pattern. it is to do the same operation onto different pixel together with its neighborhood.
+
+Stencil is used in xcorr2 function. In this application, we divide the pattern in 4 parts, and each processor needs to do the stencil execution. The cells are replicated in each local memory and swap them at the end of each iteration.
+2.2 Synchronous Dataflow Model
+Synchronous dataflow(SDF) is a constrained form of dataflow where for each actor every firing consumes a fixed number of input tokens on each input port and produces a fixed number of outpit tokens on each output port[1]. 
+2.2.1 graySDF 
+Transfers colored images to grayscaled images by multiplying r, g, b with different coefficients to make the conversion. Y=0.3125∗R+0.5625∗G+0.125∗B
+
+This part is used to get a smaller matrix which can be read faster without changing the results.
+
+Input Matrix Int, output Matrix double.
+2.2.2 calcCoordSDF
+Move the start point according to the position of previous coords. The input of this function are previous index which equals the location of the circle we have tracked in the last frame and the original image matrix.
+Input Matrix double and [Int], output [Int].
+2.2.3 cropSDF
+Select a start point in the grayed matrix which is coordination got from calcCoordSDF and then spread towards right and below to cut out a matrix in cropsize*cropsize.
+
+This part is used for detecting the circle in a small area. Since the circle can move at most 15 pixels in any direction, we can get a 31*31 matrix centered in last coordination which can include the new circle certainly.
+
+Input Matrix double and [Int], output Matrix.
+2.2.4 xcorr2SDF
+Separate the matrix got from cropSDF into 5*5 matrixes in the number of 27*27. Then multiply each little matrix with xPattern. After that, add each matrixes’ results got from multiplication. Finally get a matrix in 27*27.
+
+This part is used to transform the geometric matrix into a algebra matrix which will be easily to be compared and find the target value. Since the circle is the same shape as xPattern matrix, we will get only one maximum value from the 27*27 matrix, which is the target value.
+
+Input Marix, output Matrix.
+2.2.5 getoffsetSDF
+Find the point with the maximum value from the 27*27 matrix. Then return the position of this point.
+
+Input Matrix, output [Int].
+2.2.6 calcPosSDF
+Get the new position of point according to offset and coords got separately from getoffsetSDF and calcCoordSDF.
+
+This part is used to transform the coordination into correct value.
+
+Input [Int],[Int], output [Int].
+2.2.7 delaySDF
+Provide an initial position as the first previous position for calcCoordSDF.
+
+Input [Int], output [Int].
+
+The complete synchronous data flow is showed in Figure 1.
+
+ 
+Figure 1: SDF graph
+
+
+
+
+
+
+
+
+3. Architecture of the multiprocessor
+
+ 
+Figure 2: Hardware Architecture
+
+The Interconnection network is a network-on-chip topology. It contains of command and response network. When a component wants to access other component, it sends a signal to command network in form of transaction layer protocol and deliver the response using the transaction layer protocol[6].
+ 
+The benefits of network on a chip (NoC) architecture[6]: 
+Independent implementation and optimization layers 
+Simplified customization per application 
+Supports multiple topologies and options for different parts of the network 
+Simplified feature development, interface interoperability, and scalability 
+
+The architecture can be identified in QSYS-file by QSYS tool. Figure 2 is the architecture of the multiprocessor we use in this project.
+
+The platform, shown in Fig. 1 below, contains 5 CPUs, from CPU 0 to CPU 4. Every CPU has a timer and a UART, which can transfer data and send ISQ to CPU. CPU 0 has an SDRAM and an SRAM that can store data and instructions, while each CPU 1-4 has one corresponding on-chip memory. There is also a shared on-chip memory for 5 CPUs. Some independent peripherals, such as performance counter and buttons, have connection with CPU 0, while 5 mutexes and 5 FIFOs have connection with all five CPUs. All these units are controlled by CLK and RESET signals from clock 0.
+
+CPU0 can get the data from SRAM. In order to let CPU1-4 get an access to the data and processing it. CPU0 should move data from SRAM to shared on-chip Memory. Every CPU can use mutex to exclude other CPU’s ownership or interruption while processing the data on the shared on-chip Memory. 
+
+For multiprocessor environments, it would be a problem for assigning the accesses to the shared resources. It is because only one peripheral can put data into a bus at a time when several processors want to use the same bus. However, the mutex core provides a protocol to ensure mutual exclusive ownership of the shared resources.
+
+4 Architectural features and limitation
+As the resources of the multiprocessor are very limited, we think of both code and board/compiler support optimizations.
+
+Master-slave architecture is used in the system. CPU0 is the master while CPU1,2,3,4 are the slaves. This structure enhance the performance of the hardware and increase the processing proficiency. Each slave CPU can process part of the image on their own on-chip memories.
+
+However, the master-slave structure limit the flexibility. Shared on-chip Memory would lead to potential resource conflict. We must know what data is stored in which part of the shared memory in case of conflicts. 
+
+Code optimizations include unlooping, decrease subfunctions, use ‘<<’or ‘>>’ instead of multiplication or divide and so on. 
+
+5 Single processor without RTOS(bare-metal implementation)
+
+ 
+Figure 3: Schedule of bare mental
+
+Actor	Time(s)
+grayscale	11.06
+crop	0
+xcorr	0.3
+getoffset	8.16
+calcCoord	0.14
+calcPos	0
+Table 1: Execution time of each actor
+
+SRAM (KBytes)	Total Memory (KBytes)
+113	113
+Table 2: Memory on bare-metal
+As the table 1 and 2 shows, the measurement is from performance counter of the system. It measures every actor’s time. And the program starts from image 0, then image 1, image 2, image 3, image 4, image 0… It never exits the loop.
+
+
+6 Single processor using the SRAM memory, on the MicroC/OS-II RTOS
+
+ 
+Figure 4: Schedule of RTOS
+
+Actor	Time(s)
+grayscale	0.63
+crop	10.09
+xcorr	9.95
+getoffset	0.09
+calcCoord	0
+calcPos	0
+Table 3: Execution time of each actor
+
+SRAM (KBytes)	Total Memory (KBytes)
+151	151
+Table 4: Memory on bare-metal
+
+As the table 3 and 4 shows, the measurement is from performance counter of the system. It measures every actor’s time. And the program starts from image 0, then image 1, image 2, image 3, image 4, image 0… It never exits the loop.
+
+We first read images and directly use them in grayscale function and we do not write images into the memory. Therefore, memory access time is close to the time of grayscaleTIME.
+
+7 The application on the multi-core architecture, without RTOS
+In this part, cpu0 is the master and cpu1-4 are the slaves. We use cpu0 to get the start point and crop the original image, then store it in shared memory. Cpu1-4 each read 1/4 cropped image from shared memory, then grayscale it and get the target point. Then they store the coordinate in shared memory. Finally cpu0 will fetch it and output it.
+
+To realize parallelism, we use mutexes to block the execution of each cpu which can ensure that all the cpu can access the shared memory in a proper way.
+
+It is also important to move unrelated part out of the timing detect part like open mutex.
+
+Throughput
+(s-1)	SRAM
+(Bytes)	On-Chip CPU1
+(Bytes)	On-Chip CPU2
+(Bytes)	On-Chip CPU3
+(Bytes)	On-Chip CPU4
+(Bytes)	On-chip Shared
+(Bytes)	Total
+Memory
+(Bytes)
+192	11536	3052	3052	3052	3052	1106	24850
+Table 5: Throughput and Memory Footprint on Multiprocessor
+
+As the table 5 shows, the measurement is from performance counter of the system. The program starts from image 0, then image 1, image 2, image 3, image 4, image 0… It won’t exit the loop until it has finished 25 loops (100 images). And we divide the time by 100 then we get the time for every image.
+
+ 
+Figure 5: Schedule of Multi-Processor
+
+ 
+Figure 6: Scheduling of each CPU per cycle
+
+ 
+CPU1	0-11
+CPU2	7-18
+CPU3	14-25
+CPU4	21-31
+
+Figure 7: Matrix separation
+
+8 Code Optimization
+8.1 Bit shift operator
+In original version, multiplication was used frequently which consumed a lot of time. To save time we use bit shift operator since bit shift has the same function as multiplying 2. This will improve the performance of the project.
+8.2 Pointers
+In original version, data was fetched to or stored from the shared memory, which consumed time. To save time we use pointers pointing to shared memory. This method also save memory since it does not use local variables.
+8.3 Rearrange the functions
+In original version, grayscale happened before crop which is not good for parallelism. To save time, we should give cpu0 the tasks which consumes the least time. However, the shared memory is not enough for the original image. So we swap the grayscale with crop. Cpu0 crop the original image and get a 31*93 size matrix. And then transfer it into cpu1-4 through shared memory. Cpu1-4 each fetch a 11*93 matrix and do the grayscale function to the small matrix. This method benefits the parallelism of the application.
+8.4 Int pointer instead of unsigned char
+In original version, we used unsigned char to transfer data. To improve the throughput, int pointer are used to transfer data instead of unsigned char pointer, which can move 4 bytes rather than 1byte.
+8.5 Function call
+In original version, we used function call in main function which costs lots of time. So some functions are implanted into the main function. This method can save both time and memory.
+8.6 Loop unrolling
+In original version, we used lots of for-loops. But more for-loops increase the marginal cost of the whole program, which leads to a higher time cost. By using pointers, we can reduce the for-loops which can eliminate the overhead time.
+8.7 Function Optimization
+After we search on the Internet, we found that there are many grayscale algorithms[8]. On the reference website, seven algorithms are given for grayscale. We first try the same one given by Haskell, which is really time consuming. We finally hand in two version of codes. One is in the same with Haskell, another is selected the simplest one, which is get one channel of the RGB image. We select R. Apart from simplifying the algorithm without multiplication or other computations of original data, it also do not need to fetch as much data as before for CPU1,2,3,4. In other words, CPU1,2,3,4 only need to fetch 1/3 data as before which save a lot of time.
+
+Another function Optimization is for Finding the Circle. We try to find the first point at first. The first point could not appear in the last four lines, so that the judging point field changes from 31 lines to 27 lines. Furthermore, once the first point found, we would directly check whether the other seven point in the circle location is the right value as a circle. In this way, we further shorten the time used for other points checking.
+
+9 Conclusion and Discussion
+9.1 Bare-metal
+All the functions are implemented by C. It’s very simple since there is no RTOS and used only one processor. We write this part under the framework of the Haskell code.
+9.2 RTOS
+The RTOS separates the functions of the program into separate tasks while implementing on-demand scheduling. We write this part with 6 tasks which related to functions in C program. 
+9.3 Multi-processor
+Multi-processor is very complex and difficult since it has 5 processors. But it could be very fast since the efficiency was be improved by the 4 more processors which can do functions parallel. To improve the throughput, we rewrite this part without the method of the previous framework. At last we get a satisfied result from this part.
+
+We also tried some further optimizations. Like loop unrolling, delete the subfunctions. But these choices would make the code reading unfriendly. 
+
+We also think about using alt_u64 pointer to transform data instead of int type which would transform 8 bytes instead of 4 bytes. But the time is not improved a lot so we do not hand in the corresponding code.
+
+We also think about let CPU0 process data as CPU1,2,3,4. But how to divide the image data to get the fast one would need much more further tests. 
+
+We have already fulfill the requirement. But in the future, we think if let CPU0 processing data with CPU1,2,3,4, the processing time might be decrease more. But how many data should be assigned to different CPUs would need more tests. 
+
+10 Division of labor 
+Aobo Cui: Framework, method and code of the multi-processor; The final report.
+Tianhao Zhao: Code of the bare metal and RTOS; Some optimization of the multi-processor.
+
+References
+[1] Edward A. Lee and Sanjit A. Seshia, Introduction to Embedded Systems, A Cyber-Physical Systems Approach (Länkar till en externa sida.)Länkar till en externa sida., Second Edition, MIT Press, ISBN 978-0-262-53381-2, 2017.
+[2] Michael McCool, Arch D. Robison and James Reinders. Structured parallel programming patterns for efficient computation (Länkar till en externa sida.)Länkar till en externa sida.. Amsterdam ; Boston, Mass.: Elsevier/Morgan Kaufmann. 2012
+[3] Altera Nios II documentation page (Länkar till en externa sida.)Länkar till en externa sida.
+[4] Embedded Peripherals IP User Guide (Länkar till en externa sida.)Länkar till en externa sida.
+[5] Nios II Classic Software Developer’s Handbook (Länkar till en externa sida.)Länkar till en externa sida.
+HAL API Reference  and Nios II Software Build Tools Reference (includes reference for the commands for the build scripts)
+[6] Kent Orthner. Applying the benefits of network on a chip architecture to FPGA design (Länkar till en externa sida.)Länkar till en externa sida.. White paper.
+[7] MicroC/OS-II Documentation from the Course Material page.
+[8] http://www.tannerhelland.com/3643/grayscale-image-algorithm-vb6/ 
+

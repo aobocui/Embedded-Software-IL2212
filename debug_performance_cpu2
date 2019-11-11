@@ -1,0 +1,144 @@
+#include <stdio.h>
+#include "system.h"
+//#include "io.h"
+#include "sys/alt_stdio.h"
+#include <altera_avalon_mutex.h>
+#include "ascii_gray.h"
+
+extern void delay (int millisec);
+
+int main()
+{
+	int* cpu_rw = (int*) SHARED_ONCHIP_BASE;
+	int *crop_throw;
+	crop_throw=cpu_rw+1008;
+	int* debug_enable;
+	debug_enable=cpu_rw+1200;
+	unsigned char original[341];
+
+	int i;
+	int result[2]={0,0};
+	int found=0;	
+	int p1,p2,p3,p4,p5,p6,p7;
+
+	int total=0;
+	alt_mutex_dev* mutex_2 = altera_avalon_mutex_open( "/dev/mutex_2" );
+	
+	altera_avalon_mutex_lock(mutex_2, 1);
+	delay(1);
+	altera_avalon_mutex_unlock(mutex_2);
+	delay(10);
+
+	while (1) 
+	{
+	//	 alt_putstr("Hello cpu_2!\n");
+		
+			altera_avalon_mutex_lock(mutex_2, 1);
+
+/*------------------------------------ read image from shared memory here-------------------------------------*/
+			unsigned char* shared = (unsigned char*) SHARED_ONCHIP_BASE;
+			shared+=*crop_throw; 
+			shared+=672;   			
+			int c=0;
+			
+			for(i=7;i<18;i++)
+			{	
+			
+					original[c] = *(shared);
+					original[c+1] = *(shared+3);
+					original[c+2] = *(shared+6);
+					original[c+3] = *(shared+9);				
+					original[c+4] = *(shared+12);					
+					original[c+5] = *(shared+15);					
+					original[c+6] = *(shared+18);					
+					original[c+7] = *(shared+21);					
+					original[c+8] = *(shared+24);					
+					original[c+9] = *(shared+27);					
+					original[c+10] = *(shared+30);		
+					original[c+11] = *(shared+33);
+					original[c+12] = *(shared+36);
+					original[c+13] = *(shared+39);
+					original[c+14] = *(shared+42);
+					original[c+15] = *(shared+45);	
+					original[c+16] = *(shared+48);		
+					original[c+17] = *(shared+51);
+					original[c+18] = *(shared+54);
+					original[c+19] = *(shared+57);
+					original[c+20] = *(shared+60);
+					original[c+21] = *(shared+63);
+					original[c+22] = *(shared+66);
+					original[c+23] = *(shared+69);
+					original[c+24] = *(shared+72);
+					original[c+25] = *(shared+75);
+					original[c+26] = *(shared+78);
+					original[c+27] = *(shared+81);
+					original[c+28] = *(shared+84);
+					original[c+29] = *(shared+87);
+					original[c+30] = *(shared+90);
+				
+				//	printf("%d \n",original[c]);
+					c+=31; 
+					
+
+				shared=shared+96;
+			}		
+
+
+			if(*debug_enable)
+			{
+				alt_putstr("cpu_2 gray_output line 7 - line 17\n");
+				printAscii(original,31,11);
+				printf("\n");
+			}
+			
+			altera_avalon_mutex_unlock(mutex_2);
+
+
+/*-------------------------------------------------grayscale and find circle--------------------------------------------------------------*/
+		
+		for(i=0;i<217;i++)
+		{	
+			
+		   			if(original[i]==255)
+		    			{
+					
+					//	printf("Find_top_point\n");	
+						p1=i+30;		
+						p2=i+32;		
+						p3=i+60;		
+						p4=i+64;		
+						p5=i+92;		
+						p6=i+94;		
+						p7=i+124;
+
+						total=original[p1]+original[p2]+original[p3]+original[p4]+original[p5]+original[p6]+original[p7];
+						if(total==1785)
+						{
+							found=1;
+						//	printf("Find_circle\n");
+							i+=217;
+							result[1]=i/31+2;
+							result[0]=i%31; 														 							
+						}					
+											
+					}					
+					if (found==1)				
+					{break;}					
+    			}			
+			
+		//	alt_putstr("cpu_2 writing result\n");
+		
+			int* off=cpu_rw+1102;
+			altera_avalon_mutex_lock(mutex_2, 1);
+
+			*off=result[0];
+			*(off+1)=result[1];
+			result[0]=0;
+			result[1]=0;
+
+			found=0;
+			altera_avalon_mutex_unlock(mutex_2);
+		
+	}
+	return 0;
+}

@@ -1,0 +1,459 @@
+
+#include "includes.h"
+#include "altera_avalon_performance_counter.h"
+#include "system.h"
+#include <stdio.h>
+#include "altera_avalon_pio_regs.h"
+#include "sys/alt_alarm.h"
+#include "alt_types.h"
+#include "images.h"
+#include "sys/alt_irq.h"
+#include "ascii_gray.h"
+
+#define SECTION_1 1
+#define SECTION_2 2
+#define SECTION_3 3
+#define SECTION_4 4
+#define SECTION_5 5
+#define SECTION_6 6
+#define SECTION_7 7
+
+
+#define PERFORMANCE 0
+#define DEBUG 1
+
+
+#define dSPAN         15
+#define cropSIZE     31
+#define matrixASIZE 5
+
+#define x0 192
+#define x1 64
+#define y1 64
+#define x2 31
+#define y2 31
+#define x3 27
+#define y3 27
+
+
+
+int currentIMG;
+
+double xPATTERN[5][5]={{0,0,1,0,0},
+                  {0,1,0,1,0},
+                          {1,0,0,0,1},
+                   {0,1,0,1,0},
+                              {0,0,1,0,0}};
+int offsetX=0,offsetY=0;
+double grayed1[4096];
+
+
+#define grayscaleP        2
+#define calcCoordP        3
+#define croppP            4
+#define xcorrP            5
+#define getOffsetP        6
+#define calcPosP          7
+
+
+OS_EVENT *aSemaphore;
+OS_EVENT *bSemaphore;
+
+OS_EVENT *MBdetect;
+OS_EVENT *MBprev;
+OS_EVENT *MBgrayed;
+OS_EVENT *MBcrop;
+OS_EVENT *MBcrop2;
+OS_EVENT *MBxcorred;
+OS_EVENT *MBcroped;
+OS_EVENT *MBoffset;
+
+#define   TASK_STACKSIZE       2048
+OS_STK    task1_stk[TASK_STACKSIZE];
+OS_STK    task2_stk[TASK_STACKSIZE];
+OS_STK    task3_stk[TASK_STACKSIZE];
+OS_STK    task4_stk[TASK_STACKSIZE];
+OS_STK    task5_stk[TASK_STACKSIZE];
+OS_STK    task6_stk[TASK_STACKSIZE];
+OS_STK    task7_stk[TASK_STACKSIZE];
+
+
+void grayscale(void* pdata){
+	INT8U err;
+	INT8U err_aSemaphore;
+
+
+
+
+	while(1){
+
+
+		OSSemPend(aSemaphore,0,&err_aSemaphore);
+
+		PERF_RESET(PERFORMANCE_COUNTER_0_BASE);
+        PERF_START_MEASURING (PERFORMANCE_COUNTER_0_BASE);
+
+
+		printf("Picture %d:\n", currentIMG);
+
+	    PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+		printf("W: %d\n", x0);
+		printf("H: %d\n\n", y1);
+		int i = 1;
+		 for ( i=0; i<4096; i=i+1 )
+		        {
+
+		         grayed1[i]=(*(image_sequence[currentIMG]+3*i+3)>>4)+
+		        		 	(*(image_sequence[currentIMG]+3*i+3)>>2)+
+		         			(*(image_sequence[currentIMG]+3*i+4)>>1)+
+		         			(*(image_sequence[currentIMG]+3*i+4)>>4)+
+		         			(*(image_sequence[currentIMG]+3*i+5)>>3);
+
+		           }
+
+	    PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_1);
+
+	    if(DEBUG){printf("\n GRAYINPUT \n");printAscii(grayed1,64,64);}
+
+		OSSemPost(bSemaphore);
+		err = OSMboxPost(MBgrayed, (void *)&grayed1[0]);
+	}
+}
+
+
+
+void calcCoord(void* pdata){
+	INT8U err;
+	INT8U err_bSemaphore;
+
+	int* prev;
+    int imgW=x1,imgH=y1;
+	int crop[2];
+
+	//printf("calcCoord1111!\n");
+
+	while(1){
+
+		OSSemPend(bSemaphore,0,&err_bSemaphore);
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_2);
+		prev = (int*) OSMboxPend(MBprev, 0, &err);
+
+	    if(prev[0]<=dSPAN)
+	     {
+	          crop[0]=0;
+	     }
+	     else
+	     {
+	          if (prev[0]>(imgW-dSPAN))
+	         {
+	            crop[0]=imgW-cropSIZE-1;
+	        }
+	          else
+	          {
+	            crop[0]=prev[0]-dSPAN-1;
+	        }
+	     }
+
+	     if(prev[1]<=dSPAN)
+	     {
+	          crop[1]=0;
+	     }
+	     else
+	     {
+	          if (prev[1]>(imgH-dSPAN))
+	         {
+	            crop[1]=imgH-cropSIZE-1;
+	        }
+	          else
+	          {
+	            crop[1]=prev[1]-dSPAN-1;
+	        }
+	     }
+
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_2);
+
+		err = OSMboxPost(MBcrop2, (void *)&crop[0]);
+		err = OSMboxPost(MBcrop, (void *)&crop[0]);
+
+	}
+
+}
+
+
+
+void cropp(void* pdata){
+	INT8U err;
+	double* grayed1;
+	int* crop;
+	double croped[961];
+	//printf("cropp1111\n");
+
+	while(1){
+
+		grayed1 = (double*)OSMboxPend(MBgrayed, 0, &err);
+		crop = (int*) OSMboxPend(MBcrop, 0, &err);
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_3);
+
+		int i,j;
+				/*for(i=0; i<31; i++){
+					for(j=0; j<31; j++){
+						croped[i*31+j] = grayed1[(crop[1]+i)*y1+crop[0]+j];
+						//printf("%f",croped[i*31+j]);
+					}
+				}*/
+				 for ( i=crop[1]; i<(crop[1]+y2); i++ )
+				 {
+				   for ( j=crop[0]; j<(crop[0]+x2); j++ )
+				   {
+				   croped[(i-crop[1])*31+j-crop[0]]=grayed1[i*y1+j];
+				   }
+				 }
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_3);
+
+		err = OSMboxPost(MBcroped, (void *)&croped[0]);
+
+	}
+
+}
+
+
+void xcorr(void* pdata){
+	INT8U err;
+
+
+
+         double xcorred[729];
+         double* croped;
+
+	while(1){
+
+		croped = (double *)OSMboxPend(MBcroped, 0, &err);
+
+
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_4);
+        double xvalue=0;
+        double xtmp=0;
+
+        double* xcorredshared=(double *)SHARED_ONCHIP_BASE;
+
+		int i=0,j=0,k=0,l=0;
+		for ( i=0; i<y3; i++ )
+		     {
+		          for ( j=0; j<x3; j++ )
+		          {
+		               xvalue=0;
+		               for ( k=0; k<5; k++ )
+		               {
+		                for ( l=0; l<5; l++ )
+		                {
+		                     xtmp=xPATTERN[k][l] * croped[(i+k)*31+(j+l)];
+		                     xvalue=xvalue+xtmp;
+
+		                }
+		                }
+		                  xcorred[i*y3+j]=xvalue;
+		                  *xcorredshared++=xvalue;
+		          }
+		    }
+
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_4);
+		err = OSMboxPost(MBxcorred, (void *)&xcorred[0]);
+
+	}
+}
+
+
+void getoffset(void* pdata){
+	INT8U err;
+	double *xcorred;
+	int offset[2];
+
+	while(1){
+
+		xcorred = (double *) OSMboxPend(MBxcorred, 0, &err);
+
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_5);
+		double* maxshared=(double*) (SHARED_ONCHIP_BASE+800);
+		double max=0;
+		int i,j;
+
+	     for ( i=0; i<y3; i++ )
+	     {
+	          for ( j=0; j<x3; j++ )
+	          {
+	               if (xcorred[i*y3+j]>max)
+	               {
+	                max=xcorred[i*y3+j];
+	                offset[0]=j;
+	                offset[1]=i;
+
+	               }
+
+	          }
+
+	     }
+	     *maxshared=max;
+	     //printf("%f\n",max);
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_5);
+
+		err = OSMboxPost(MBoffset, (void *)&offset[0]);
+
+	}
+}
+
+
+
+void calcPos(void* pdata){
+	INT8U err;
+	int *offset;
+	int *crop2;
+	int detect[2];
+
+	while(1){
+
+		offset = (int*) OSMboxPend(MBoffset, 0, &err);
+		crop2 = (int*) OSMboxPend(MBcrop2, 0, &err);
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_6);
+		//printf("Crop: (%d, %d) \n", crop2[0], crop2[1]);
+		//printf("offset: (%d, %d) \n", offset[0], offset[1]);
+
+		detect[0] = crop2[0]+offset[0]+2;
+		detect[1] = crop2[1]+offset[1]+2;
+
+        PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_6);
+        PERF_STOP_MEASURING(PERFORMANCE_COUNTER_0_BASE);
+
+
+		printf("Object position is: (%d, %d) \n\n\n", detect[0], detect[1]);
+
+
+		if (currentIMG < 3){currentIMG+=1;}
+		else{
+			currentIMG=0;
+			detect[0] = 0;
+			detect[1] = 0;
+
+		}
+
+		err = OSMboxPost(MBprev, (void *)&detect[0]);
+		//err = OSMboxPost(MBpreY, (void *)&detect[1]);
+		double* xcorredshared=(double *)SHARED_ONCHIP_BASE;
+		double* maxshared=(double*) (SHARED_ONCHIP_BASE+800);
+		double max11=*maxshared;
+		printf("%f\n",max11);
+
+		if(DEBUG){
+		printf("\nCROPPED OUTPUT\n");printAsciiHidden(xcorredshared,27,27, offset[0], offset[1],4,max11);
+		}
+
+
+
+		perf_print_formatted_report
+		(PERFORMANCE_COUNTER_0_BASE,
+				ALT_CPU_FREQ,                    // defined in "system.h"
+				6,                            // How many sections to print
+	  "grayF", "calcCoordF", "cropF","xcrop2F","getOffsetF","calcPos");
+
+		OSSemPost(aSemaphore);
+
+	}
+}
+
+
+int main(){
+	currentIMG = 0;
+    int dimX,dimY;
+	dimX = *image_sequence[currentIMG];
+	dimY = *(image_sequence[currentIMG]+1);
+
+	int prev[2]={15,15};
+	int length;
+
+
+
+
+	length = sizeof(image_sequence)/sizeof(image_sequence[0]);
+	printf("There are %d pictures:\n", length);
+
+	OSTaskCreateExt(grayscale,
+	                  NULL,
+	                  (void *)&task1_stk[TASK_STACKSIZE-1],
+	                  grayscaleP,
+	                  grayscaleP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+	    OSTaskCreateExt(calcCoord,
+	                  NULL,
+	                  (void *)&task2_stk[TASK_STACKSIZE-1],
+	                  calcCoordP,
+	                  calcCoordP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+	    OSTaskCreateExt(cropp,
+	                  NULL,
+	                  (void *)&task3_stk[TASK_STACKSIZE-1],
+	                  croppP,
+	                  croppP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+	    OSTaskCreateExt(xcorr,
+	                  NULL,
+	                  (void *)&task4_stk[TASK_STACKSIZE-1],
+	                  xcorrP,
+	                  xcorrP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+	    OSTaskCreateExt(getoffset,
+	                  NULL,
+	                  (void *)&task5_stk[TASK_STACKSIZE-1],
+	                  getOffsetP,
+	                  getOffsetP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+	    OSTaskCreateExt(calcPos,
+	                  NULL,
+	                  (void *)&task6_stk[TASK_STACKSIZE-1],
+	                  calcPosP,
+	                  calcPosP,
+	                  task1_stk,
+	                  TASK_STACKSIZE,
+	                  NULL,
+	                  0);
+
+
+			aSemaphore     = OSSemCreate(1);
+	        bSemaphore     = OSSemCreate(0);
+	        MBdetect    = OSMboxCreate((void *)0);
+	        MBprev        = OSMboxCreate((void *)&prev[0]);
+	        MBgrayed    = OSMboxCreate((void *)0);
+	        MBcrop        = OSMboxCreate((void *)0);
+	        MBcrop2        = OSMboxCreate((void *)0);
+	        MBcroped    = OSMboxCreate((void *)0);
+	        MBoffset    = OSMboxCreate((void *)0);
+	        MBxcorred    = OSMboxCreate((void *)0);
+
+
+		OSStart();
+
+
+	return 0;
+}
+

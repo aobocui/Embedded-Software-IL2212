@@ -1,0 +1,388 @@
+#include <stdio.h>
+#include "system.h"
+#include "altera_avalon_pio_regs.h"
+#include "sys/alt_stdio.h"
+#include <altera_avalon_mutex.h>
+#include "altera_avalon_performance_counter.h"
+#include "images.h"
+#include "alt_types.h"
+#include "ascii_gray.h"
+
+#define SECTION_IMAGE_PROCESSING 				1
+#define SECTION_WRITE_IMAGE_TO_SHARED_MEMORY	2
+#define SECTION_READ_IMAGE_FROM_SHARED_MEMORY	3
+#define SECTION_DISTRIBUTED_COMPUTING			4
+#define SECTION_READ_RESULTS					5
+
+#define debugModeEn                             0
+                         
+extern void delay (int millisec);
+
+int loopNumber = 0;
+int executionTime = 0;
+int crop[2];
+int off_sum[2];
+
+//int current_image = 0;
+unsigned char* shared = (unsigned char*) SHARED_ONCHIP_BASE;
+
+
+int main()
+{
+	// alt_putstr("Hello cpu_0!\n");
+	int count = 0;
+	int* cpu_rw = (int*) SHARED_ONCHIP_BASE;
+	int *crop_throw;
+	crop_throw = cpu_rw+1008;
+	int* debug_enable;
+	debug_enable=cpu_rw+1200;
+	*debug_enable=debugModeEn;
+	int crop_offset;
+	int i;
+	int detect[2]={0,0};
+	alt_mutex_dev* mutex_1 = altera_avalon_mutex_open( "/dev/mutex_1" );
+	alt_mutex_dev* mutex_2 = altera_avalon_mutex_open( "/dev/mutex_2" );
+	alt_mutex_dev* mutex_3 = altera_avalon_mutex_open( "/dev/mutex_3" );
+	alt_mutex_dev* mutex_4 = altera_avalon_mutex_open( "/dev/mutex_4" );
+
+	
+	// alt_putstr("cpu_0 is waiting for all CPUs to wake up\n");
+	
+	char cpu1_sleeping = 1;
+	char cpu2_sleeping = 1;
+	char cpu3_sleeping = 1;
+	char cpu4_sleeping = 1;
+	
+	
+	altera_avalon_mutex_trylock(mutex_1, 1);
+	altera_avalon_mutex_trylock(mutex_2, 1);
+	altera_avalon_mutex_trylock(mutex_3, 1);
+	altera_avalon_mutex_trylock(mutex_4, 1);            //cpu0 get mutex1-4
+
+/*------------------wait until all the cpus are ready to process image---------------------------*/	
+	while(cpu1_sleeping || cpu2_sleeping || cpu3_sleeping || cpu4_sleeping) 
+	{
+		if(cpu1_sleeping) {
+			altera_avalon_mutex_trylock(mutex_1, 1);
+			cpu1_sleeping = altera_avalon_mutex_is_mine(mutex_1);
+			altera_avalon_mutex_unlock(mutex_1);                    
+			if(!cpu1_sleeping) {//just woke up
+				alt_putstr("CPU 1 awake\n");
+				altera_avalon_mutex_lock(mutex_1, 1);                // if cpu1 is sleeping,lock mutex1
+			}
+		}
+		if(cpu2_sleeping) {
+			altera_avalon_mutex_trylock(mutex_2, 1);
+			cpu2_sleeping = altera_avalon_mutex_is_mine(mutex_2);
+			altera_avalon_mutex_unlock(mutex_2);
+			if(!cpu2_sleeping) {//just woke up
+				alt_putstr("CPU 2 awake\n");
+				altera_avalon_mutex_lock(mutex_2, 1);
+			}
+		}
+		if(cpu3_sleeping) {
+			altera_avalon_mutex_trylock(mutex_3, 1);
+			cpu3_sleeping = altera_avalon_mutex_is_mine(mutex_3);
+			altera_avalon_mutex_unlock(mutex_3);
+			if(!cpu3_sleeping) {//just woke up
+				alt_putstr("CPU 3 awake\n");
+				altera_avalon_mutex_lock(mutex_3, 1);
+			}
+		}
+		if(cpu4_sleeping) {
+			altera_avalon_mutex_trylock(mutex_4, 1);
+			cpu4_sleeping = altera_avalon_mutex_is_mine(mutex_4);
+			altera_avalon_mutex_unlock(mutex_4);
+			if(!cpu4_sleeping) {//just woke up
+				alt_putstr("CPU 4 awake\n");
+				altera_avalon_mutex_lock(mutex_4, 1);
+			}
+		}
+	}        
+/*-------------------------------make sure all the cpu is wake and being blocked---------------------------------*/
+		
+	if(*debug_enable)
+	{
+		alt_putstr("Debug Mode: \n");
+	   	loopNumber = 4;
+		unsigned char* debug_pointer;
+		int debug_count=0;
+		for(debug_count=0;debug_count<4;debug_count++)
+		{
+			debug_pointer=(unsigned char*)image_sequence[debug_count];
+		
+		}
+		printf("cpu_0 gray_input image %d !\n",debug_count);
+		printAscii(debug_pointer,192,64);
+		printf("\n");
+	}
+
+	if(!(*debug_enable))
+	{
+
+		alt_putstr("Performance Mode: \n");
+	    	loopNumber = 200;
+
+	}
+	
+	while (1) 
+	{
+
+		if(count % 4 == 0)
+		{
+		//	alt_putstr("all the four images has been processed!\n");
+
+			detect[0] = 0;
+			detect[1] = 0;
+			
+
+		 	if( count == loopNumber)
+		 	{
+            			printf("IamgeNumber:%d\r\nTotalExecutionTime:%d us\r\nThroughout:%d us/per image \n",loopNumber,executionTime,executionTime/loopNumber);
+			while(1)
+			{
+
+				altera_avalon_mutex_lock(mutex_1, 1);
+				altera_avalon_mutex_lock(mutex_2, 1);
+				altera_avalon_mutex_lock(mutex_3, 1);
+				altera_avalon_mutex_lock(mutex_4, 1);
+			}		 		
+		 	}
+
+		}
+
+/*------------------------------    calcCoord();    -----------------------------*/
+
+			if(detect[0]<=15)
+ 			{
+  				crop[0]=0;
+ 			}
+ 			else
+ 			{
+  				if (detect[0]>49)
+  				{
+					crop[0]=32;
+				}
+  				else
+  				{
+					crop[0]=detect[0]-13;
+				}
+ 			}
+
+  			if(detect[1]<=15)
+ 			{
+  				crop[1]=0;
+ 			}
+ 			else
+ 			{
+  				if (detect[1]>49)
+  				{
+					crop[1]=32;
+				}
+  				else
+  				{
+					crop[1]=detect[1]-13;
+				}
+ 			}
+/*--------------------------------------------------------------------------------------------------------------------------*/
+
+
+		crop_offset=(crop[0]*3)/4;
+		*crop_throw=(crop[0]*3)%4;  
+      	
+		int *croped;
+		int *img;
+
+		croped = (int *)SHARED_ONCHIP_BASE;
+		img = (int*) image_sequence[count%4];
+
+		img+=(crop[1]*48)+crop_offset; 
+		
+		
+     
+		PERF_RESET(PERFORMANCE_COUNTER_0_BASE);
+		PERF_START_MEASURING (PERFORMANCE_COUNTER_0_BASE);
+
+ /*----------------------start to get the total time for image processing------------------------*/
+    	
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_IMAGE_PROCESSING);
+
+	/*--------------start to get the time for transforming original data------------------*/
+	
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_WRITE_IMAGE_TO_SHARED_MEMORY);
+
+/*-------------------transform data from sram to shared onchip memory----------------------------*/	
+	
+  		for ( i=0; i<31; i++)/*    31*3=93,  24*4=96*/
+		{
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;
+				*croped++=*img++;  			
+				img+=24;
+		}
+
+/*--------------------------------------------------------------------------------------------------*/
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_WRITE_IMAGE_TO_SHARED_MEMORY);
+
+	/*------------------start to get the time for cpu1234 read data------------*/	
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_READ_IMAGE_FROM_SHARED_MEMORY);
+	//	 alt_putstr("cpu_0 scheduling reading\n");
+		if(altera_avalon_mutex_is_mine(mutex_1)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 1\n");
+			altera_avalon_mutex_unlock(mutex_1);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_1, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 1 because does not own mutex 1\n");
+		}
+		if(altera_avalon_mutex_is_mine(mutex_2)) {
+	//		alt_putstr("cpu_0 giving control to cpu 2\n");
+			altera_avalon_mutex_unlock(mutex_2);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_2, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 2 because does not own mutex 2\n");
+		}
+		if(altera_avalon_mutex_is_mine(mutex_3)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 3\n");
+			altera_avalon_mutex_unlock(mutex_3);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_3, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 3 because does not own mutex 3\n");
+		}
+		if(altera_avalon_mutex_is_mine(mutex_4)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 4\n");
+			altera_avalon_mutex_unlock(mutex_4);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_4, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 4 because does not own mutex 4\n");
+		}
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_READ_IMAGE_FROM_SHARED_MEMORY);
+		
+/*-----------------------------------------time for cpu1234 image processing-----------------------------------------*/
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_DISTRIBUTED_COMPUTING);
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_DISTRIBUTED_COMPUTING);
+	
+		
+		if(altera_avalon_mutex_is_mine(mutex_1)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 1\n");
+			altera_avalon_mutex_unlock(mutex_1);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_1, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 1 because does not own mutex 1\n");
+		}
+		
+		if(altera_avalon_mutex_is_mine(mutex_2)) {
+	//		alt_putstr("cpu_0 giving control to cpu 2\n");
+			altera_avalon_mutex_unlock(mutex_2);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_2, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 2 because does not own mutex 2\n");
+		}
+		
+		if(altera_avalon_mutex_is_mine(mutex_3)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 3\n");
+			altera_avalon_mutex_unlock(mutex_3);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_3, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 3 because does not own mutex 3\n");
+		}
+		
+		if(altera_avalon_mutex_is_mine(mutex_4)) {
+	//		 alt_putstr("cpu_0 giving control to cpu 4\n");
+			altera_avalon_mutex_unlock(mutex_4);
+			delay(1);
+			altera_avalon_mutex_lock(mutex_4, 1);
+		} else {
+	//		alt_putstr("cpu_0 cant open mutex 4 because does not own mutex 4\n");
+		}
+
+/*----------------------------------------------------time for read result-------------------------------------------------*/
+		
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, SECTION_READ_RESULTS);
+		int *cpu0_off;  		
+    		cpu0_off=cpu_rw+1100;
+		for(i=0;i<8;i++)
+		{	
+					
+			if (*(cpu0_off+i)!=0)
+			{
+				off_sum[0]=*(cpu0_off+i);
+				off_sum[1]=*(cpu0_off+i+1);
+			}
+			if (*(cpu0_off+i)!=0)
+			break;
+
+		}
+
+//		alt_putstr("clear \n");
+		for(i=0;i<8;i++)
+		{
+			*(cpu0_off+i)=0;
+		
+
+		}
+
+/*------------------------------     calcPos();   ------------------------------------*/
+
+
+				detect[0]=crop[0]+off_sum[0];
+ 				detect[1]=crop[1]+off_sum[1];
+ 				
+
+
+/*------------------------------------------------------------------------------------*/
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_READ_RESULTS);
+		
+		printf("Number:%d,Result: %d, %d\n", (count % 4),detect[0],detect[1]);
+				
+		count ++;
+
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, SECTION_IMAGE_PROCESSING);	
+            	PERF_STOP_MEASURING (PERFORMANCE_COUNTER_0_BASE);
+	        perf_print_formatted_report
+			(PERFORMANCE_COUNTER_0_BASE,
+			ALT_CPU_FREQ,        // defined in "system.h"
+			5,                   // How many sections to print
+			"Total",
+			"writing image",
+			"reading image",
+			"computing",
+			"read results"
+			); 
+          executionTime = perf_get_total_time(PERFORMANCE_COUNTER_0_BASE)/50+executionTime;
+        
+  }
+  return 0;
+}
